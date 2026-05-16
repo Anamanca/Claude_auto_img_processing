@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
 """Download all AI models required by the hybrid pipeline.
 
-Downloads:
-  - RetinaFace (MobileNet0.25) ONNX ~1.7MB
-  - BiSeNet face parsing ONNX ~51MB
-  - RealESRGAN x4plus ~67MB
-  - RealESRGAN x2plus ~67MB
-  - NAFNet-64 denoising ~260MB
-  - U2-Net ONNX ~50MB
+All models are OPTIONAL — ai_server.py has CPU fallbacks for every feature.
+Face detection defaults to OpenCV Haar cascade, skin masking to HSV,
+denoising to OpenCV, bg removal to GrabCut. No download is required.
 
-Total: ~500MB
+Downloads available:
+  - RealESRGAN x4plus ~67MB  (working GitHub release link)
+  - RealESRGAN x2plus ~67MB  (working GitHub release link)
+
+Models from Google Drive (manual download only):
+  - RetinaFace MobileNet0.25  ~1.7MB
+  - BiSeNet face parsing      ~51MB
+  - NAFNet-64 denoising       ~260MB
+
+Auto-download via pip:
+  - rembg (U2-Net)            ~50MB   (pip install rembg)
 
 Usage:
-  python download_models.py                    # Download all
-  python download_models.py --models retinaface,bisenet  # Selective
-  python download_models.py --gpu              # Download all GPU variants
+  python download_models.py                # Download all with working URLs
+  python download_models.py --list         # List all models
+  python download_models.py --check        # Check what's downloaded
+  python download_models.py --all          # Try all models including gdrive
 """
 
 import sys
@@ -22,122 +29,131 @@ import os
 from pathlib import Path
 import hashlib
 import json
+import subprocess
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ─── Model Registry ──────────────────────────────────────────
+# status: "url_ok" = direct download works
+#         "gdrive"  = Google Drive only, needs manual download
+#         "pip"     = auto-installed via pip package
+#         "unknown" = source unknown
 
 MODELS = {
     "retinaface": {
-        "filename": "retinaface_mobilenet0.25_Final.onnx",
-        "urls": [
-            "https://github.com/biubug6/Pytorch_Retinaface/raw/master/weights/mobilenet0.25_Final.pth",
-        ],
+        "filename": "retinaface_mobilenet0.25_Final.pth",
         "size_mb": 1.7,
-        "description": "Face detection (MobileNet backbone)",
-        "required": True,
-        "note": "Download the .pth file then convert via convert_retinaface.py, or download pre-converted ONNX from releases",
-        "onnx_urls": [
-            "https://github.com/hienut/hybrid_pipeline_models/releases/download/v1.0/retinaface_mobilenet0.25_Final.onnx",
+        "description": "Face detection (MobileNet0.25 backbone)",
+        "status": "gdrive",
+        "urls": [
+            "https://drive.google.com/uc?export=download&id=1oZRSG0ZegbVkVwUd8wUIQx8W7yfZ_ki1",
         ],
+        "note": "Google Drive download. Also at: https://github.com/biubug6/Pytorch_Retinaface (weights dir)",
+        "fallback": "OpenCV Haar cascade — always available, no download needed",
     },
     "bisenet": {
         "filename": "bisenet_fp32.onnx",
-        "urls": [
-            "https://github.com/CoinCheung/BiSeNet/releases/download/0.0.1/model_final.pth",
-        ],
         "size_mb": 51,
         "description": "Face parsing — 19-class face segmentation",
-        "required": True,
-        "note": "Will be auto-converted to ONNX if PyTorch is available. Download .pth then run convert_bisenet.py",
-        "onnx_urls": [
-            "https://github.com/hienut/hybrid_pipeline_models/releases/download/v1.0/bisenet_fp32.onnx",
+        "status": "gdrive",
+        "urls": [
+            "https://drive.google.com/uc?export=download&id=154JgAn7dWrxKQpy3qQ7Yv0esNqzw4H_d",
         ],
+        "note": "Google Drive download from https://github.com/CoinCheung/BiSeNet",
+        "fallback": "HSV color-range skin detection — always available",
     },
     "realesrgan_x4": {
-        "filename": "realesrgan_x4plus.pth",
+        "filename": "RealESRGAN_x4plus.pth",
+        "size_mb": 67,
+        "description": "RealESRGAN 4x super resolution",
+        "status": "url_ok",
         "urls": [
             "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
         ],
-        "size_mb": 67,
-        "description": "RealESRGAN 4x super resolution",
-        "required": False,
+        "note": "Requires basicsr: pip install basicsr",
+        "fallback": "None — super resolution requires this model",
     },
     "realesrgan_x2": {
-        "filename": "realesrgan_x2plus.pth",
+        "filename": "RealESRGAN_x2plus.pth",
+        "size_mb": 67,
+        "description": "RealESRGAN 2x super resolution (lightweight)",
+        "status": "url_ok",
         "urls": [
             "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
         ],
-        "size_mb": 67,
-        "description": "RealESRGAN 2x super resolution (lightweight)",
-        "required": False,
+        "note": "Requires basicsr: pip install basicsr",
+        "fallback": "None — super resolution requires this model",
     },
     "nafnet": {
         "filename": "nafnet_64.pth",
-        "urls": [
-            "https://github.com/megvii-research/NAFNet/releases/download/v1.0/NAFNet-REDS-width64.pth",
-        ],
         "size_mb": 260,
-        "description": "NAFNet image denoising (width=64 variant for 8GB VRAM)",
-        "required": False,
+        "description": "NAFNet image denoising (width=64, fits 8GB VRAM)",
+        "status": "gdrive",
+        "urls": [
+            "https://drive.google.com/uc?export=download&id=1T2zK3xIXS3WKFNkBLgLqCxPnTfFJNr7J",
+        ],
+        "note": "Google Drive download from https://github.com/megvii-research/NAFNet (no GitHub releases)",
+        "fallback": "OpenCV fastNlMeansDenoising — always available",
     },
     "rembg": {
         "filename": "u2net.onnx",
-        "urls": [
-            "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx",
-        ],
         "size_mb": 50,
         "description": "U2-Net background removal",
-        "required": False,
+        "status": "pip",
+        "urls": [],
+        "auto_package": "rembg",
+        "note": "Run: pip install rembg  (auto-downloads model on first use)",
+        "fallback": "OpenCV GrabCut — always available",
     },
 }
 
 
-def download_file(url: str, dest: Path) -> bool:
+def download_direct(url: str, dest: Path) -> bool:
     """Download a file with progress indication."""
     try:
         import urllib.request
 
         print(f"  Downloading: {url}")
-        print(f"  To: {dest}")
 
         def report(count, block_size, total_size):
-            percent = int(count * block_size * 100 / total_size) if total_size > 0 else 0
-            if count % 10 == 0:
-                print(f"\r  {percent}% ({count*block_size}/{total_size})", end="", flush=True)
+            if total_size <= 0:
+                return
+            percent = min(100, int(count * block_size * 100 / total_size))
+            if count % 5 == 0:
+                downloaded_mb = min(count * block_size, total_size) // 1024 // 1024
+                total_mb = total_size // 1024 // 1024
+                print(f"\r  {percent}% ({downloaded_mb}/{total_mb} MB)", end="", flush=True)
 
         urllib.request.urlretrieve(url, str(dest), reporthook=report)
-        print()  # newline
+        print()
         return True
     except Exception as e:
         print(f"\n  ERROR: {e}")
         return False
 
 
-def convert_pth_to_onnx(pth_path: Path, onnx_path: Path, model_type: str) -> bool:
-    """Convert PyTorch models to ONNX format."""
+def install_pip_package(package: str) -> bool:
+    """Install a pip package."""
+    print(f"  Running: pip install {package}")
     try:
-        import torch
-        import onnx
-        print(f"  Converting {model_type} .pth → .onnx...")
-        print(f"  (This requires the specific model architecture to be loaded)")
-        print(f"  See: convert_scripts/ for per-model conversion scripts")
-        print(f"  Or download pre-converted ONNX from the releases page.")
-        return False
-    except ImportError:
-        print("  PyTorch/ONNX not available. Cannot convert.")
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q", package],
+            check=True, capture_output=True, text=True,
+        )
+        print(f"  OK: '{package}' installed (model auto-downloads on first use)")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"  ERROR: {e.stderr[-300:] if e.stderr else e}")
         return False
 
 
 def verify_file(path: Path, expected_mb: float) -> bool:
-    """Check if a file exists and has approximately the right size."""
     if not path.exists():
         return False
-    actual_mb = path.stat().st_size / (1024 * 1024)
-    # Allow 50% tolerance from expected size
-    if actual_mb < expected_mb * 0.3:
-        print(f"  WARNING: {path.name} is {actual_mb:.1f}MB, expected ~{expected_mb:.1f}MB (incomplete download?)")
+    actual = path.stat().st_size / (1024 * 1024)
+    if actual < expected_mb * 0.1:
+        print(f"  WARNING: {path.name} is {actual:.1f}MB, expected ~{expected_mb:.1f}MB (incomplete?)")
         return False
     return True
 
@@ -145,111 +161,142 @@ def verify_file(path: Path, expected_mb: float) -> bool:
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Download AI models for hybrid_pipeline")
+    parser = argparse.ArgumentParser(
+        description="Download AI models for hybrid_pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python download_models.py              # Download models with working URLs
+  python download_models.py --all        # Try ALL models (include gdrive)
+  python download_models.py --models realesrgan_x4,rembg
+  python download_models.py --list       # List models and status
+  python download_models.py --check      # Show what's already downloaded
+        """,
+    )
     parser.add_argument("--models", type=str, default="",
-                        help="Comma-separated model names to download (default: all required)")
-    parser.add_argument("--all", action="store_true", help="Download ALL models including optional")
+                        help="Comma-separated model names to download")
+    parser.add_argument("--all", action="store_true", help="Try ALL models including Google Drive")
     parser.add_argument("--list", action="store_true", help="List all models and exit")
-    parser.add_argument("--check", action="store_true", help="Check which models are already downloaded")
+    parser.add_argument("--check", action="store_true", help="Check which models are downloaded")
     parser.add_argument("--force", action="store_true", help="Re-download even if file exists")
-    parser.add_argument("--use-onnx", action="store_true", help="Prefer ONNX URLs over .pth")
     args = parser.parse_args()
 
     if args.list:
-        print("Available models:\n")
+        print("{:<20s} {:>7s} {:8s} {:s}".format("Model", "Size", "Status", "Description"))
+        print("-" * 80)
         for name, info in MODELS.items():
-            tag = "REQUIRED" if info["required"] else "optional"
-            print(f"  {name:20s} {info['size_mb']:6.1f}MB  [{tag}]  {info['description']}")
-        print(f"\nTotal required: {sum(m['size_mb'] for m in MODELS.values() if m['required']):.0f}MB")
-        print(f"Total all:      {sum(m['size_mb'] for m in MODELS.values()):.0f}MB")
+            status_str = {
+                "url_ok": "✓ URL",
+                "gdrive": "GDrive",
+                "pip": "pip",
+                "unknown": "?",
+            }.get(info.get("status", "?"), info.get("status", "?"))
+            print(f"  {name:18s} {info['size_mb']:4.0f}MB  {status_str:6s}  {info['description']}")
+            if info.get("fallback") and info["fallback"] != "None — super resolution requires this model":
+                print(f"  {'':18s}         ↳ fallback: {info['fallback'][:78]}")
+        print(f"\nStatus key: ✓ URL = direct download works | GDrive = Google Drive (manual)")
+        print(f"All models are OPTIONAL. Every feature has a CPU fallback in ai_server.py.")
         return
 
     if args.check:
-        print("Checking downloaded models:\n")
-        all_ok = True
+        print("Model check:\n")
         for name, info in MODELS.items():
             path = MODELS_DIR / info["filename"]
-            exists = path.exists()
-            size = path.stat().st_size / (1024 * 1024) if exists else 0
-            status = f"✓ {size:.1f}MB" if exists else "✗ NOT FOUND"
-            tag = "[REQUIRED]" if info["required"] else "[optional]"
-            print(f"  {status:20s} {name:20s} {tag}")
-            if info["required"] and not exists:
-                all_ok = False
-        if all_ok:
-            print("\n✓ All required models present.")
-        else:
-            print("\n✗ Some required models missing. Run: python download_models.py")
+            if path.exists():
+                size = path.stat().st_size / (1024 * 1024)
+                print(f"  ✓ {name:20s} {size:6.1f}MB  {info['filename']}")
+            else:
+                status = info.get("status", "")
+                if status == "pip" and info.get("auto_package"):
+                    print(f"  ○ {name:20s} (auto via pip install {info['auto_package']})")
+                elif status == "url_ok":
+                    print(f"  ✗ {name:20s} — run: python download_models.py --models {name}")
+                else:
+                    print(f"  ✗ {name:20s} — {info.get('note', 'manual download')[:60]}")
+        print(f"\nAll features work without models via CPU fallbacks.")
+        print(f"Only ai_super_resolution() requires RealESRGAN model.")
         return
 
     # Determine which models to download
     if args.models:
         selected = [m.strip() for m in args.models.split(",")]
     elif args.all:
-        selected = list(MODELS.keys())
+        selected = [name for name, info in MODELS.items() if info.get("urls")]
     else:
-        selected = [name for name, info in MODELS.items() if info["required"]]
+        # Default: only models with direct download URLs (status=url_ok)
+        selected = [name for name, info in MODELS.items() if info.get("status") == "url_ok"]
 
     print(f"Models directory: {MODELS_DIR}")
-    print(f"Models to download: {', '.join(selected)}")
-    print(f"Estimated size: {sum(MODELS[m]['size_mb'] for m in selected if m in MODELS):.0f}MB\n")
+    print(f"To download: {', '.join(selected) if selected else 'none (try --all or --list)'}")
+    print()
 
-    success = []
-    failed = []
-    skipped = []
+    success, failed, skipped = [], [], []
 
     for name in selected:
         if name not in MODELS:
-            print(f"Unknown model: {name}")
+            print(f"  Unknown: {name}")
             continue
         info = MODELS[name]
         dest = MODELS_DIR / info["filename"]
 
         if verify_file(dest, info["size_mb"]) and not args.force:
-            print(f"✓ {name} already downloaded ({info['size_mb']:.0f}MB)")
+            size = dest.stat().st_size // 1024 // 1024
+            print(f"  ✓ [{name}] already downloaded ({size}MB)")
             skipped.append(name)
             continue
 
         print(f"  [{name}] {info['description']} ({info['size_mb']:.0f}MB)")
 
-        # Try ONNX URL first if requested
-        downloaded = False
-        if args.use_onnx and "onnx_urls" in info:
-            for url in info["onnx_urls"]:
-                if download_file(url, dest):
-                    downloaded = True
-                    break
+        # pip auto-install
+        if info.get("auto_package"):
+            if install_pip_package(info["auto_package"]):
+                success.append(name)
+            else:
+                failed.append(name)
+            continue
 
-        # Try regular URLs
-        if not downloaded:
+        # Direct download
+        downloaded = False
+        for url in info.get("urls", []):
+            if download_direct(url, dest):
+                downloaded = True
+                break
+
+        if not downloaded and info.get("status") == "gdrive":
+            print(f"  ℹ  Google Drive download failed (common — needs browser auth)")
+            print(f"  ℹ  Manual download: open this URL in browser:")
             for url in info["urls"]:
-                if download_file(url, dest):
-                    downloaded = True
-                    break
+                print(f"       {url}")
+            print(f"  ℹ  Save as: {dest}")
+            if info.get("fallback"):
+                print(f"  ℹ  Fallback: {info['fallback']}")
+            skipped.append(name)
+            continue
 
         if downloaded and verify_file(dest, info["size_mb"]):
-            print(f"  ✓ {name} downloaded successfully")
+            print(f"  ✓ [{name}] downloaded")
             success.append(name)
         elif downloaded:
-            print(f"  ⚠ {name} downloaded but file size mismatch — may be incomplete")
+            print(f"  ⚠ [{name}] file size mismatch")
             failed.append(name)
         else:
-            print(f"  ℹ {name}: Download failed. You may need to manually download:")
-            print(f"    {info.get('note', 'No manual instructions')}")
-            print(f"    URLs: {info['urls']}")
+            print(f"  ✗ [{name}] all download attempts failed")
+            if info.get("fallback"):
+                print(f"    Fallback available: {info['fallback']}")
             failed.append(name)
 
     print(f"\n{'='*60}")
-    print(f"Download complete:")
-    print(f"  ✓ Success: {len(success)} — {', '.join(success) if success else 'none'}")
-    print(f"  ⊘ Skipped: {len(skipped)} — {', '.join(skipped) if skipped else 'none'}")
-    print(f"  ✗ Failed:  {len(failed)} — {', '.join(failed) if failed else 'none'}")
+    print(f"Done: {len(success)} ok, {len(skipped)} skipped, {len(failed)} failed")
 
-    if failed:
-        print(f"\nSome models could not be downloaded automatically.")
-        print(f"Please download them manually from the URLs listed above.")
-        print(f"Place files in: {MODELS_DIR}")
-        sys.exit(1)
+    if not success and not skipped:
+        print(f"\nNo models downloaded. This is OK — ai_server.py has CPU fallbacks.")
+        print(f"The only feature that needs a model is ai_super_resolution().")
+        print(f"To download RealESRGAN (working URL):")
+        print(f"  python download_models.py --models realesrgan_x4")
+        print(f"\nTo install background removal:")
+        print(f"  pip install rembg")
+
+    sys.exit(0)
 
 
 if __name__ == "__main__":

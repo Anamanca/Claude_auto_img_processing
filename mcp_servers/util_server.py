@@ -61,7 +61,8 @@ def util_raw_develop(input_path: str, output_path: str,
     output.parent.mkdir(parents=True, exist_ok=True)
 
     with rawpy.imread(input_path) as raw:
-        rgb = raw.postprocess(
+        # rawpy >= 0.18 uses auto_bright_thr (float), older uses auto_bright (bool)
+        pp_kwargs = dict(
             demosaic_algorithm=getattr(rawpy.DemosaicAlgorithm, demosaic_algorithm, rawpy.DemosaicAlgorithm.AMAZE),
             use_camera_wb=use_camera_wb,
             brightness=int(brightness * 1000),
@@ -69,9 +70,14 @@ def util_raw_develop(input_path: str, output_path: str,
             exp_shift=exp_shift,
             output_color=getattr(rawpy.ColorSpace, output_color_space, rawpy.ColorSpace.sRGB),
             output_bps=output_bps,
-            auto_bright_thr=0.01 if auto_bright else None,
             median_filter_passes=median_filter_passes,
         )
+        try:
+            rgb = raw.postprocess(auto_bright_thr=0.01 if auto_bright else None, **pp_kwargs)
+        except TypeError:
+            # Fallback for older rawpy versions
+            pp_kwargs["auto_bright"] = auto_bright
+            rgb = raw.postprocess(**pp_kwargs)
 
     if output_bps == 16:
         img = Image.fromarray(rgb)
@@ -104,13 +110,17 @@ def util_raw_to_jpeg(input_path: str, output_path: str,
         raise RuntimeError("Missing dependencies. Install: pip install rawpy Pillow")
 
     with rawpy.imread(input_path) as raw:
-        rgb = raw.postprocess(
+        pp_kwargs = dict(
             demosaic_algorithm=getattr(rawpy.DemosaicAlgorithm, demosaic_algorithm, rawpy.DemosaicAlgorithm.AMAZE),
             use_camera_wb=use_camera_wb,
             output_color=rawpy.ColorSpace.sRGB,
             output_bps=8,
-            auto_bright_thr=0.01 if auto_bright else None,
         )
+        try:
+            rgb = raw.postprocess(auto_bright_thr=0.01 if auto_bright else None, **pp_kwargs)
+        except TypeError:
+            pp_kwargs["auto_bright"] = auto_bright
+            rgb = raw.postprocess(**pp_kwargs)
 
     img = Image.fromarray(rgb)
     img.save(output_path, format="JPEG", quality=quality, progressive=True)
