@@ -1,0 +1,51 @@
+# Hybrid AI + CLI Image/Video Processing Pipeline
+# Target: RTX 2060 Super (8GB) + Ryzen 7 5800X + 32GB RAM
+
+paths:
+  temp_dir: temp
+  log_dir: logs
+  models_dir: models
+  luts_dir: luts
+  profiles_dir: profiles
+  output_dir: output
+
+gpu:
+  cuda_device: 0
+  max_vram_mb: 7500
+  enable_tensorrt: false
+
+imagemagick:
+  binary: convert
+  identify_binary: identify
+  mogrify_binary: mogrify
+
+ffmpeg:
+  binary: ffmpeg
+  ffprobe_binary: ffprobe
+  nvenc_enabled: true
+  default_preset: p4
+
+ai:
+  device: cuda
+  fp16: true
+  batch_size: 1
+  models:
+    retinaface: models/retinaface_mobilenet0.25_Final.onnx
+    bisenet: models/bisenet_fp32.onnx
+    realesrgan_x4: models/realesrgan_x4plus.pth
+    realesrgan_x2: models/realesrgan_x2plus.pth
+    nafnet: models/nafnet_64.pth
+    rembg: models/u2net.onnx
+
+defaults:
+  jpeg_quality: 92
+  jpeg_progressive: true
+  sharpen_radius: 0.8
+  sharpen_sigma: 0.5
+  blur_radius: 0
+  blur_sigma: 3.0
+  format: JPEG
+
+logging:
+  level: INFO
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"

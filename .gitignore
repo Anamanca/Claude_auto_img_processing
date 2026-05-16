@@ -1,0 +1,19 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# AI models (large, downloaded separately)
+models/*.pth
+models/*.onnx
+models/face_mesh/
+
+# Runtime
+logs/
+temp/
+output/
+
+# Python
+*.egg-info/
+dist/
+.pytest_cache/

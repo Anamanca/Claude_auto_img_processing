@@ -1,0 +1,29 @@
+# Hybrid Pipeline — Python dependencies
+
+# MCP framework
+mcp>=1.0.0
+fastmcp>=0.1.0
+
+# AI inference
+onnxruntime-gpu>=1.17; platform_machine == 'x86_64'
+onnxruntime>=1.17; platform_machine != 'x86_64'
+torch>=2.1
+mediapipe>=0.10.0
+
+# Image/video
+opencv-python-headless>=4.8
+rawpy>=0.17
+Pillow>=10.0
+scikit-image>=0.21
+scenedetect>=0.6
+
+# Utilities
+pyyaml>=6.0
+tqdm>=4.65
+numpy>=1.24
+
+# Optional: background removal
+# rembg>=2.0  (uncomment if you want one-liner bg removal)
+
+# Optional: basicsr (for RealESRGAN architecture)
+# basicsr>=1.4.2  (uncomment if using ai_super_resolution with RealESRGAN)
