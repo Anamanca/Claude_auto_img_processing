@@ -30,11 +30,11 @@ ai:
   fp16: true
   batch_size: 1
   models:
-    retinaface: models/retinaface_mobilenet0.25_Final.onnx
-    bisenet: models/bisenet_fp32.onnx
-    realesrgan_x4: models/realesrgan_x4plus.pth
-    realesrgan_x2: models/realesrgan_x2plus.pth
-    nafnet: models/nafnet_64.pth
+    retinaface: models/retinaface_standard_conversion.onnx
+    bisenet: models/faceparser_sim.onnx
+    realesrgan_x4: models/RealESRGAN_x4plus.pth
+    realesrgan_x2: models/RealESRGAN_x2plus.pth
+    nafnet: models/NAFNet-REDS-width64.pth
     rembg: models/u2net.onnx
 
 defaults:
